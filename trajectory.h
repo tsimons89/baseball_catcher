@@ -3,12 +3,15 @@
 #define CATCHER_Z_OFFSET 8
 #define Y_POLY_ORDER 3
 #define X_POLY_ORDER 1
+#define BEST_FIT_MAX_ORDER 5
+#define BEST_FIT_MIN_ORDER 2
+#define ALLOWED_ERROR 0
 
 using namespace std;
 using namespace cv;
 #define PLOT_SCALE 3
 
-void plot_points_3d(vector<vector<Point2d>> points, string left_xml, string right_xml, string rect_xml, string stereo_xml, int which, int x_poly_order, int y_poly_order);
+void plot_points_3d(vector<vector<Point2d>> points, string left_xml, string right_xml, string rect_xml, string stereo_xml, int which, int x_poly_order, int y_poly_order,double catcher_z);
 void show_points_3d(vector<Point3d> points, int x_poly_order, int y_poly_order);
 Point2d get_cord_range(vector<Point3d>points, char dim);
 double get_max_cord(vector<Point3d>points, char dim);
@@ -33,3 +36,6 @@ double x_sum(vector<Point2d> line_points, int exp);
 vector<double> mat_to_vec(Mat m);
 Mat draw_line(vector<double> line_coefs, Mat image, Scalar color);
 double calc_line_y(vector<double> line_coefs, double x);
+double calc_line_error(vector<Point2d> line_points, vector<double> line_params);
+vector<double> least_squares_poly_best_fit(vector<Point2d> line_points, int min_order, int max_order, double allowed_avg_error);
+

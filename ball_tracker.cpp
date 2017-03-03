@@ -2,20 +2,24 @@
 #include "ball_tracker.h"
 #include "trajectory.h"
 
-
-
+char key;
+volatile double point_x;
 Point2d ball_tracker::get_prediction(){
 	Point3d camera_3d = get_z_plane_intercept(points,left_xml,right_xml,rect_xml,stereo_xml,1,catcher_z,x_poly_order,y_poly_order);
 	return camera_2d_to_catcher(camera_3d.x, camera_3d.y);
 }
 void ball_tracker::plot_points(){
 	if (plot_points_flag){
-		plot_points_3d(points, left_xml, right_xml, rect_xml, stereo_xml, 1, x_poly_order, y_poly_order);
+		plot_points_3d(points, left_xml, right_xml, rect_xml, stereo_xml, 1, x_poly_order, y_poly_order, catcher_z);
+		if (click_flight_images_flag && clicked_points.size() > 0){
+			plot_points_3d(clicked_points, left_xml, right_xml, rect_xml, stereo_xml, 1, 1, -1, catcher_z);
+		}
 	}
 }
 
 void ball_tracker::show_results(){
-	show_images();
+	show_tracking_images();
+	click_flight_images();
 	plot_points();
 
 }
@@ -26,8 +30,11 @@ void ball_tracker::reset(){
 	points.clear();
 	ball_in_flight = false;
 	initilized = false;
-	left_images.clear();
-	right_images.clear();
+	left_tracking_images.clear();
+	right_tracking_images.clear();
+	left_flight_images.clear();
+	right_flight_images.clear();
+	num_flight_frames_countdown = num_flight_frames;
 	wait_after_motion = 0;
 }
 bool ball_tracker::is_tracking_done(){
@@ -82,27 +89,27 @@ Point2d ball_tracker::get_ball_center(Mat frame, int which){
 	//cvNamedWindow("center");
 	//imshow("center", frame);
 	//waitKey(0);
-	if (show_images_flag){
+	if (show_tracking_images_flag){
 		circle(frame, *prev_center, 3, Scalar(0, 255, 0), -1, 8, 0);
 		if (which == 1){
-			left_images.push_back(frame.clone());
+			left_tracking_images.push_back(frame.clone());
 		}
 		else{
-			right_images.push_back(frame.clone());
+			right_tracking_images.push_back(frame.clone());
 		}
 	}
 	return center;
 }
 
-void ball_tracker::show_images(){
-	if (show_images_flag == false){
+void ball_tracker::show_tracking_images(){
+	if (show_tracking_images_flag == false){
 		return;
 	}
 	namedWindow("left_image");
 	namedWindow("right_image");
-	for (int i = 0; i < left_images.size(); i++){
-		imshow("left_image", left_images.at(i));
-		imshow("right_image", right_images.at(i));
+	for (int i = 0; i < left_tracking_images.size(); i++){
+		imshow("left_image", left_tracking_images.at(i));
+		imshow("right_image", right_tracking_images.at(i));
 		if (cvWaitKey(0) == '\33') {
 			break;
 		}
@@ -118,19 +125,79 @@ void ball_tracker::feed_next_images(Mat left_image, Mat right_image){
 		return;
 	}
 	if (is_ball_in_flight(left_image, right_image)){
-		if(wait_after_motion-- <= 0)
-			set_next_points(left_image, right_image);
+		if (wait_after_motion-- <= 0){
+			if (num_flight_frames_countdown-- > 0 && click_flight_images_flag == true){
+				left_flight_images.push_back(left_image.clone());
+				right_flight_images.push_back(right_image.clone());
+			}
+			if (!is_tracking_done()){
+				set_next_points(left_image, right_image);
+			}
+		}
 	}
 }
 
+void ball_tracker::click_flight_images(){
+	if (click_flight_images_flag == false){
+		return;
+	}
+	vector<Point2d> left_clicked_points = click_points(left_flight_images);
+	vector<Point2d> right_clicked_points = click_points(right_flight_images);
+	clicked_points = combine_point_vectors(left_clicked_points, right_clicked_points);
+}
 
+vector<Point2d> ball_tracker::click_points(vector<Mat> images){
+	vector<Point2d> points;
+	for (int i = 0; i < images.size(); i++){
+		putText(images.at(i), "Click point " + to_string(i + 1), Point(120, 20), FONT_HERSHEY_SIMPLEX, .5, Scalar(255, 0, 0));
+		Point2d point = get_image_mouse_point(images.at(i), "Click_ball");
+		if (point.x == -1){
+			break;
+		}
+		points.push_back(point);
+	}
+	destroyAllWindows();
+	return points;
+}
+
+
+Point2d ball_tracker::get_image_mouse_point(Mat image, string window_name){
+	Point2d ret_point(-1, -1);
+	namedWindow(window_name);
+	setMouseCallback(window_name, onMouse, (void *)&ret_point);
+	while (waitKey(30) != '\33'){
+		imshow(window_name, image);
+		point_x = ret_point.x;
+		if (point_x != -1){
+			break;
+		}
+	}
+	return ret_point;
+}
+
+void onMouse(int evt, int x, int y, int flags, void *param){
+	if (evt == CV_EVENT_LBUTTONDOWN){
+		Point2d * point = (Point2d*)param;
+		point->x = x;
+		point->y = y;
+	}
+}
+
+vector<vector<Point2d>> ball_tracker::combine_point_vectors(vector<Point2d> points1, vector<Point2d> points2){
+	vector<vector<Point2d>> ret_points;
+	int min_size = (points1.size() < points2.size()) ? points1.size() : points2.size();
+	for (int i = 0; i < min_size; i++){
+		vector<Point2d> pair;
+		pair.push_back(points1.at(i));
+		pair.push_back(points2.at(i));
+		ret_points.push_back(pair);
+	}
+	return ret_points;
+}
 
 bool ball_tracker::is_ball_in_flight(Mat left_image, Mat right_image) {
 	if (ball_in_flight == false){
 		ball_in_flight = (is_there_motion(right_image, initial_right_image, right_center));
-	}
-	if (ball_in_flight){
-		return true;
 	}
 	return ball_in_flight;
 }

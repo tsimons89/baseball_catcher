@@ -3,9 +3,9 @@
 #include "measure_3d.h"
 #include <Filter.h>
 
-void plot_points_3d(vector<vector<Point2d>> points, string left_xml, string right_xml, string rect_xml,string stereo_xml, int which,int x_poly_order,int y_poly_order){
+void plot_points_3d(vector<vector<Point2d>> points, string left_xml, string right_xml, string rect_xml,string stereo_xml, int which,int x_poly_order,int y_poly_order,double catcher_z){
 	vector<Point3d> points_3d = get_3d_points(points, left_xml, right_xml, rect_xml,stereo_xml, which);
-	points_3d.push_back(get_line_z_point(points_3d, 8, x_poly_order, y_poly_order));
+	points_3d.push_back(get_line_z_point(points_3d, catcher_z, x_poly_order, y_poly_order));
 	show_points_3d(points_3d,x_poly_order,y_poly_order);
 }
 
@@ -145,13 +145,42 @@ Point3d get_z_plane_intercept(vector<vector<Point2d>> points, string left_xml, s
 	return get_line_z_point(points_3d, plane_point,x_poly_order,y_poly_order);
 }
 
+double calc_line_error(vector<Point2d> line_points, vector<double> line_params){
+	double error_sum = 0;
+	for (auto point : line_points){
+		error_sum += abs(point.y - calc_line_y(line_params, point.x));
+	}
+	return (error_sum / (double)line_points.size());
+}
+
 vector<double> least_squares_poly_fit(vector<Point2d> line_points,int poly_order){
+	if (poly_order < 0){
+		return least_squares_poly_best_fit(line_points, BEST_FIT_MIN_ORDER, BEST_FIT_MAX_ORDER, ALLOWED_ERROR);
+	}
 	Mat xy_vec = get_xv_vec(line_points, poly_order);
 	Mat x_mat = get_x_mat(line_points, poly_order);
 	Mat coefs = x_mat.inv()*xy_vec;
 	vector<double> line_coefs = mat_to_vec(coefs);
 	return line_coefs;
 }
+
+vector<double> least_squares_poly_best_fit(vector<Point2d> line_points, int min_order, int max_order, double allowed_avg_error){
+	vector<double> best_params;
+	double min_error = 10000;
+	for (int order = min_order; order <= max_order; order++){
+		vector<double> line_params = least_squares_poly_fit(line_points, order);
+		double error = calc_line_error(line_points, line_params);
+		if (error < allowed_avg_error){
+			return line_params;
+		}
+		if (error < min_error){
+			min_error = error;
+			best_params = line_params;
+		}
+	}
+	return best_params;
+}
+
 
 Mat get_xv_vec(vector<Point2d> line_points, int poly_order){
 	Mat xy_vec = Mat::zeros(Size(1,poly_order + 1), CV_64F);

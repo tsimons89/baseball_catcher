@@ -8,12 +8,14 @@
 #define NUM_FIRST_FRAMES 19
 #define NUM_SECOND_FRAMES 21
 #define INITAL_WAIT_FRAMES 2
+#define NUM_FLIGHT_IMAGES 33
 #define Z_OFFSET 5
 #define RESET_CATCHER_COUNT 50
-#define PLOT_POINTS true
-#define SHOW_IMAGES true
+#define PLOT_POINTS false
+#define SHOW_TRACKING_IMAGES false
+#define CLICK_FLIGHT_IMAGES false
 #define X_POLY 1
-#define Y_POLY 3
+#define Y_POLY -1
 
 enum CatcherState{  RESET, FIRST, SECOND };
 CatcherState catcher_state = FIRST;
@@ -48,9 +50,11 @@ CTCSys::CTCSys()
 	tracker->set_catcher_z(Z_OFFSET);
 	tracker->set_num_frames_to_track(NUM_FIRST_FRAMES);
 	tracker->set_wait_after_motion(INITAL_WAIT_FRAMES);
-	tracker->set_show_images_flag(SHOW_IMAGES);
+	tracker->set_show_tracking_images_flag(SHOW_TRACKING_IMAGES);
+	tracker->set_click_flight_images_flag(CLICK_FLIGHT_IMAGES);
 	tracker->set_plot_points_flag(PLOT_POINTS);
 	tracker->set_poly_order(X_POLY, Y_POLY);
+	tracker->set_num_flight_frames(NUM_FLIGHT_IMAGES);
 }
 
 CTCSys::~CTCSys()
@@ -155,12 +159,10 @@ long QSProcessThreadFunc(CTCSys *QS)
 			// Images are acquired into ProcBuf[0] for left and ProcBuf[1] for right camera
 			// Need to create child image or small region of interest for processing to exclude background and speed up processing
 			// Mat child = QS->IR.ProcBuf[i](Rect(x, y, width, height));
-			if (!tracker->is_tracking_done()){
-				Mat left_image = QS->IR.ProcBuf[0];
-				Mat right_image = QS->IR.ProcBuf[1];
-				tracker->feed_next_images(left_image, right_image);
-			}
-			else{
+			Mat left_image = QS->IR.ProcBuf[0];
+			Mat right_image = QS->IR.ProcBuf[1];
+			tracker->feed_next_images(left_image, right_image);
+			if (tracker->is_tracking_done()){
 				prediction = tracker->get_prediction();
 
 				switch (catcher_state)
@@ -192,8 +194,10 @@ long QSProcessThreadFunc(CTCSys *QS)
 					QS->Move_Y = prediction.y;					// replace 0 with your y coordinate
 					SetEvent(QS->QSMoveEvent);		// Signal the move event to move catcher. The event will be reset in the move thread.
 					reset_count = 0;
-					catcher_state = RESET;
-					tracker->show_results();
+					if (tracker->is_flight_done()){
+						catcher_state = RESET;
+						tracker->show_results();
+					}
 					prediction_2 = prediction;
 					break;
 				default:
